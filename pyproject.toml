@@ -1,14 +1,17 @@
 [project]
 name = "md-viewer"
 version = "0.1.0"
-description = "Render markdown files in Chrome with LaTeX support"
+description = "Render markdown files in browser"
 requires-python = ">=3.10"
 dependencies = [
     "mistune>=3.0",
 ]
 
 [project.scripts]
-md = "md_viewer.cli:main"
+md = "md.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/md"]
 
 [build-system]
 requires = ["hatchling"]

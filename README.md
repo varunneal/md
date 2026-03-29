@@ -1,6 +1,6 @@
 # md
 
-Render markdown files in Chrome with LaTeX and syntax highlighting.
+Render markdown files in Chrome with LaTeX and syntax highlighting. A persistent local server starts on first use, which is reused on subsequent calls.
 
 ## Install
 
@@ -16,6 +16,9 @@ md --status         # check if server is running
 md --stop           # stop the background server
 ```
 
-A persistent local server starts on first use. Subsequent calls reuse it — each file gets its own URL so you can view multiple files simultaneously.
+## Config
 
-Dark/light theme toggle and raw view buttons are in the top right corner.
+Defaults live in the package. To override, create `~/.config/md/`:
+
+- `config.toml` — override any of: `port`, `browser`, `theme`
+- `style.css` — appended after the default styles
