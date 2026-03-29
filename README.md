@@ -1,4 +1,6 @@
-# md
+```
+uv tool install git+https://github.com/varunneal/md.git
+```
 
 Render markdown files in Chrome with LaTeX and syntax highlighting. A persistent local server starts on first use, which is reused on subsequent calls.
 
