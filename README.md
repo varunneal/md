@@ -1,4 +1,4 @@
-Render markdown files in Chrome with LaTeX and syntax highlighting. A persistent local server starts on first use, which is reused on subsequent calls.
+Render markdown files in browser with LaTeX and syntax highlighting. A persistent local server starts on first use, which is reused on subsequent calls.
 
 **Install**
 
