@@ -9,7 +9,7 @@ uv tool install git+https://github.com/varunneal/md.git
 **Usage**
 
 ```
-md file.md          # opens rendered markdown in Chrome
+md file.md          # opens rendered markdown in localhost server 
 md --status         # check if server is running
 md --stop           # stop the background server
 ```
