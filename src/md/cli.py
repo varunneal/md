@@ -1,23 +1,27 @@
+from __future__ import annotations
+
 import argparse
-import hashlib
+import fcntl
+import json
 import os
-import re
+import secrets
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
-from html import escape
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import quote, unquote
+from typing import Iterator, TypedDict
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
-import mistune
+from .server import PROTOCOL_VERSION, run_server
+
 
 PKG_DIR = Path(__file__).parent
 USER_DIR = Path.home() / ".config" / "md"
-DEFAULT_CSS = PKG_DIR / "style.css"
-
 DEFAULTS = {
     "port": 52342,
     "browser": "Google Chrome",
@@ -25,236 +29,305 @@ DEFAULTS = {
 }
 
 
-def load_config() -> dict:
-    cfg = dict(DEFAULTS)
-    # Package defaults, then user overrides
-    for config_file in [PKG_DIR / "config.toml", USER_DIR / "config.toml"]:
+class ServerState(TypedDict):
+    pid: int
+    port: int
+    protocol_version: int
+    token: str
+
+
+def load_config() -> dict[str, object]:
+    config: dict[str, object] = dict(DEFAULTS)
+    for config_file in (PKG_DIR / "config.toml", USER_DIR / "config.toml"):
         if config_file.exists():
-            with open(config_file, "rb") as f:
-                cfg.update(tomllib.load(f))
-    return cfg
+            with config_file.open("rb") as stream:
+                config.update(tomllib.load(stream))
+    return config
 
 
 CFG = load_config()
-PORT = CFG["port"]
-PIDFILE = Path(f"/tmp/md-viewer-{PORT}.pid")
-
-_md = mistune.create_markdown(
-    plugins=["strikethrough", "table", "footnotes", "task_lists"],
-)
-
-_MATH_BLOCK = re.compile(r'\$\$(.+?)\$\$', re.DOTALL)
-_MATH_INLINE = re.compile(r'(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)')
+PORT = int(CFG["port"])
+STATE_FILE = Path(f"/tmp/md-viewer-{PORT}.json")
+LOCK_FILE = Path(f"/tmp/md-viewer-{PORT}.lock")
+LEGACY_PIDFILE = Path(f"/tmp/md-viewer-{PORT}.pid")
+# Kept as an import-compatible name for clients of the original tiny module.
+PIDFILE = LEGACY_PIDFILE
+_ACTIVE_LOCK_DESCRIPTOR: int | None = None
 
 
-def _protect_math(text: str) -> tuple[str, dict[str, str]]:
-    store: dict[str, str] = {}
-
-    def _replace(m: re.Match, display: bool) -> str:
-        raw = m.group(0)
-        key = f"MATH_{hashlib.md5(raw.encode()).hexdigest()}"
-        store[key] = raw
-        return f"\n\n{key}\n\n" if display else key
-
-    text = _MATH_BLOCK.sub(lambda m: _replace(m, display=True), text)
-    text = _MATH_INLINE.sub(lambda m: _replace(m, display=False), text)
-    return text, store
-
-
-def _restore_math(html: str, store: dict[str, str]) -> str:
-    for key, raw in store.items():
-        html = html.replace(key, raw)
-    return html
+def _process_alive(pid: int) -> bool:
+    try:
+        waited_pid, _status = os.waitpid(pid, os.WNOHANG)
+        if waited_pid == pid:
+            return False
+    except ChildProcessError:
+        pass
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
 
 
-def _load_css() -> str:
-    base = DEFAULT_CSS.read_text(encoding="utf-8")
-    user_css = USER_DIR / "style.css"
-    if user_css.exists():
-        base += "\n" + user_css.read_text(encoding="utf-8")
-    return base
+def _read_state() -> ServerState | None:
+    if not STATE_FILE.exists():
+        return None
+    try:
+        raw = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        state: ServerState = {
+            "pid": int(raw["pid"]),
+            "port": int(raw["port"]),
+            "protocol_version": int(raw["protocol_version"]),
+            "token": str(raw["token"]),
+        }
+        if state["port"] != PORT or not state["token"]:
+            raise ValueError("invalid viewer state")
+        return state
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        STATE_FILE.unlink(missing_ok=True)
+        return None
 
 
-HTML_TEMPLATE = """\
-<!DOCTYPE html>
-<html data-theme="__THEME__">
-<head>
-<meta charset="utf-8">
-<title>__TITLE__</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
-    onload="renderMathInElement(document.getElementById('rendered'), {
-        delimiters: [
-            {left: '$$', right: '$$', display: true},
-            {left: '$', right: '$', display: false},
-            {left: '\\\\(', right: '\\\\)', display: false},
-            {left: '\\\\[', right: '\\\\]', display: true}
-        ]
-    });"></script>
-<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-<style>
-__CSS__
-</style>
-</head>
-<body>
-<div class="toolbar">
-    <button id="raw-btn" onclick="toggleRaw()">raw</button>
-    <button id="theme-btn" onclick="toggleTheme()">__THEME_ALT__</button>
-</div>
-<div id="rendered">__BODY__</div>
-<div id="raw-view">__RAW__</div>
-<script>
-function toggleRaw() {
-    var rendered = document.getElementById('rendered');
-    var raw = document.getElementById('raw-view');
-    var btn = document.getElementById('raw-btn');
-    if (raw.style.display === 'none' || raw.style.display === '') {
-        raw.style.display = 'block';
-        rendered.style.display = 'none';
-        btn.textContent = 'rendered';
-    } else {
-        raw.style.display = 'none';
-        rendered.style.display = 'block';
-        btn.textContent = 'raw';
-    }
-}
-function toggleTheme() {
-    var html = document.documentElement;
-    var btn = document.getElementById('theme-btn');
-    if (html.dataset.theme === 'dark') {
-        html.dataset.theme = 'light';
-        btn.textContent = 'dark';
-        localStorage.setItem('md-theme', 'light');
-    } else {
-        html.dataset.theme = 'dark';
-        btn.textContent = 'light';
-        localStorage.setItem('md-theme', 'dark');
-    }
-}
-(function() {
-    var saved = localStorage.getItem('md-theme');
-    if (saved) {
-        document.documentElement.dataset.theme = saved;
-        document.getElementById('theme-btn').textContent = saved === 'dark' ? 'light' : 'dark';
-    }
-})();
-</script>
-</body>
-</html>
-"""
-
-
-def render_markdown(filepath: Path) -> str:
-    text = filepath.read_text(encoding="utf-8")
-    protected, store = _protect_math(text)
-    body = _restore_math(_md(protected), store)
-    theme = CFG["theme"]
-    theme_alt = "light" if theme == "dark" else "dark"
-    return (
-        HTML_TEMPLATE
-        .replace("__TITLE__", escape(filepath.name))
-        .replace("__CSS__", _load_css())
-        .replace("__THEME__", theme)
-        .replace("__THEME_ALT__", theme_alt)
-        .replace("__BODY__", body)
-        .replace("__RAW__", escape(text))
+def _write_state(state: ServerState) -> None:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{STATE_FILE.name}.", dir=STATE_FILE.parent
     )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(state, stream, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, STATE_FILE)
+        os.chmod(STATE_FILE, 0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _remove_state_if_owner(pid: int) -> None:
+    state = _read_state()
+    if state is not None and state["pid"] == pid:
+        STATE_FILE.unlink(missing_ok=True)
+
+
+@contextmanager
+def _startup_lock() -> Iterator[None]:
+    global _ACTIVE_LOCK_DESCRIPTOR
+    descriptor = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR, 0o600)
+    _ACTIVE_LOCK_DESCRIPTOR = descriptor
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+        _ACTIVE_LOCK_DESCRIPTOR = None
+
+
+def _health(state: ServerState, timeout: float = 0.25) -> bool:
+    if not _process_alive(state["pid"]):
+        return False
+    try:
+        with urlopen(
+            f"http://127.0.0.1:{state['port']}/health", timeout=timeout
+        ) as response:
+            payload = json.loads(response.read())
+        return (
+            response.status == 200
+            and payload.get("status") == "ok"
+            and payload.get("protocol_version") == PROTOCOL_VERSION
+            and state["protocol_version"] == PROTOCOL_VERSION
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def find_server_state() -> ServerState | None:
+    state = _read_state()
+    if state is not None and _health(state):
+        return state
+    return None
 
 
 def find_server_pid() -> int | None:
-    if not PIDFILE.exists():
-        return None
-    try:
-        pid = int(PIDFILE.read_text().strip())
-        os.kill(pid, 0)
-        return pid
-    except (ValueError, ProcessLookupError, PermissionError):
-        PIDFILE.unlink(missing_ok=True)
-        return None
-
-
-class RequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        filepath = Path(unquote(self.path))
-        if not filepath.is_absolute() or not filepath.exists():
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"File not found")
-            return
+    state = find_server_state()
+    if state is not None:
+        return state["pid"]
+    if LEGACY_PIDFILE.exists():
         try:
-            html = render_markdown(filepath)
-        except Exception as e:
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(f"Error: {e}".encode())
-            return
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode())
-
-    def log_message(self, format, *args):
-        pass
+            pid = int(LEGACY_PIDFILE.read_text(encoding="utf-8").strip())
+            return pid if _process_alive(pid) else None
+        except (OSError, ValueError):
+            pass
+    return None
 
 
-def start_server():
-    pid = os.fork()
-    if pid > 0:
+def _terminate(pid: int, timeout: float = 3.0) -> None:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
         return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _process_alive(pid):
+            return
+        time.sleep(0.05)
 
+
+def _replace_legacy_server() -> None:
+    if not LEGACY_PIDFILE.exists():
+        return
+    try:
+        pid = int(LEGACY_PIDFILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        pid = 0
+    if pid > 0 and _process_alive(pid):
+        _terminate(pid)
+    LEGACY_PIDFILE.unlink(missing_ok=True)
+
+
+def _daemon_child(state: ServerState) -> None:
+    global _ACTIVE_LOCK_DESCRIPTOR
+    if _ACTIVE_LOCK_DESCRIPTOR is not None:
+        os.close(_ACTIVE_LOCK_DESCRIPTOR)
+        _ACTIVE_LOCK_DESCRIPTOR = None
     os.setsid()
-    sys.stdin.close()
-    devnull = open(os.devnull, "w")
-    sys.stdout = devnull
-    sys.stderr = devnull
+    devnull_read = os.open(os.devnull, os.O_RDONLY)
+    devnull_write = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull_read, 0)
+    os.dup2(devnull_write, 1)
+    os.dup2(devnull_write, 2)
+    os.close(devnull_read)
+    os.close(devnull_write)
+    try:
+        run_server(
+            token=state["token"],
+            port=state["port"],
+            theme=str(CFG["theme"]),
+        )
+    finally:
+        _remove_state_if_owner(os.getpid())
 
-    PIDFILE.write_text(str(os.getpid()))
-    signal.signal(signal.SIGTERM, lambda *_: (PIDFILE.unlink(missing_ok=True), sys.exit(0)))
 
-    HTTPServer(("127.0.0.1", PORT), RequestHandler).serve_forever()
+def _spawn_server() -> ServerState:
+    token = secrets.token_urlsafe(32)
+    pid = os.fork()
+    if pid == 0:
+        state: ServerState = {
+            "pid": os.getpid(),
+            "port": PORT,
+            "protocol_version": PROTOCOL_VERSION,
+            "token": token,
+        }
+        _daemon_child(state)
+        os._exit(0)
+
+    state = {
+        "pid": pid,
+        "port": PORT,
+        "protocol_version": PROTOCOL_VERSION,
+        "token": token,
+    }
+    _write_state(state)
+    return state
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Render markdown in Chrome")
+def ensure_server(timeout: float = 8.0) -> ServerState:
+    with _startup_lock():
+        state = _read_state()
+        if state is not None and _health(state):
+            _replace_legacy_server()
+            return state
+        if state is not None:
+            if _process_alive(state["pid"]):
+                _terminate(state["pid"])
+            STATE_FILE.unlink(missing_ok=True)
+
+        _replace_legacy_server()
+        state = _spawn_server()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if _health(state, timeout=0.15):
+                return state
+            if not _process_alive(state["pid"]):
+                break
+            time.sleep(0.05)
+
+        if _process_alive(state["pid"]):
+            _terminate(state["pid"])
+        _remove_state_if_owner(state["pid"])
+        raise RuntimeError(f"viewer server did not become ready on port {PORT}")
+
+
+def stop_server() -> bool:
+    with _startup_lock():
+        state = _read_state()
+        if state is not None:
+            if _process_alive(state["pid"]):
+                _terminate(state["pid"])
+            _remove_state_if_owner(state["pid"])
+            return True
+        if LEGACY_PIDFILE.exists():
+            _replace_legacy_server()
+            return True
+        return False
+
+
+def _open_browser(filepath: Path, state: ServerState) -> None:
+    query = urlencode({"path": str(filepath), "token": state["token"]})
+    url = f"http://127.0.0.1:{state['port']}/view?{query}"
+    subprocess.Popen(
+        ["open", "-a", str(CFG["browser"]), url],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Render Markdown in a browser")
     parser.add_argument("file", nargs="?", type=Path, help="Markdown file to render")
     parser.add_argument("--stop", action="store_true", help="Stop the background server")
     parser.add_argument("--status", action="store_true", help="Check if server is running")
     args = parser.parse_args()
 
     if args.status:
-        pid = find_server_pid()
-        if pid:
-            print(f"Server running (pid {pid}) on http://127.0.0.1:{PORT}")
+        state = find_server_state()
+        if state:
+            print(
+                f"Server running (pid {state['pid']}) on "
+                f"http://127.0.0.1:{state['port']}"
+            )
         else:
             print("No server running.")
         return
 
     if args.stop:
-        pid = find_server_pid()
-        if pid:
-            os.kill(pid, signal.SIGTERM)
-            print("Server stopped.")
-        else:
-            print("No server running.")
+        print("Server stopped." if stop_server() else "No server running.")
         return
 
     if not args.file:
         parser.error("the following arguments are required: file")
 
-    filepath = args.file.resolve()
-    if not filepath.exists():
+    filepath = args.file.expanduser().resolve()
+    if not filepath.is_file():
         print(f"File not found: {filepath}", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit(1)
+    try:
+        filepath.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print(f"File is not UTF-8: {filepath}", file=sys.stderr)
+        raise SystemExit(1)
 
-    if find_server_pid() is None:
-        start_server()
-        time.sleep(0.2)
+    try:
+        state = ensure_server()
+    except RuntimeError as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(1) from error
+    _open_browser(filepath, state)
 
-    browser = CFG["browser"]
-    subprocess.Popen(
-        ["open", "-a", browser, f"http://127.0.0.1:{PORT}{quote(str(filepath), safe='/')}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+
+if __name__ == "__main__":
+    main()

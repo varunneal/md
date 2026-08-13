@@ -5,6 +5,17 @@ description = "Render markdown files in browser"
 requires-python = ">=3.10"
 dependencies = [
     "mistune>=3.0",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+    "watchfiles>=1.0",
+    "websockets>=13.0",
+]
+
+[dependency-groups]
+test = [
+    "httpx>=0.27",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
 ]
 
 [project.scripts]
@@ -12,6 +23,10 @@ md = "md.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [build-system]
 requires = ["hatchling"]

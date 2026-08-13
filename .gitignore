@@ -5,3 +5,6 @@ dist/
 build/
 .venv/
 test.md
+frontend/node_modules/
+frontend/test-results/
+frontend/playwright-report/

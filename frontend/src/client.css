@@ -1,0 +1,150 @@
+#raw-view,
+#editor-wrap {
+  display: none;
+}
+
+#raw-view {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.toolbar {
+  z-index: 30;
+  align-items: center;
+}
+
+.sync-status {
+  color: var(--gray);
+  min-width: 78px;
+  text-align: right;
+}
+
+.sync-status[data-state="saving"],
+.sync-status[data-state="reconnecting"],
+.sync-status[data-state="file-missing"] {
+  color: var(--code-keyword);
+}
+
+.notice {
+  position: fixed;
+  z-index: 25;
+  top: 58px;
+  right: 20px;
+  max-width: 360px;
+  padding: 8px 12px;
+  border: 1px solid var(--link);
+  border-radius: 5px;
+  color: var(--heading);
+  background: var(--bg-light);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 18%);
+  font-size: 13px;
+}
+
+#editor-wrap .cm-editor,
+#recovery-compare .cm-editor {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid var(--gray);
+  border-radius: 6px;
+}
+
+#editor-wrap .cm-editor {
+  min-height: 80vh;
+}
+
+#editor-wrap .cm-editor.cm-focused {
+  outline: none;
+  border-color: var(--link);
+}
+
+.cm-editor .cm-scroller {
+  min-height: inherit;
+  font-family: inherit;
+}
+
+.cm-editor .cm-gutters {
+  color: var(--gray);
+  background: var(--bg);
+  border-right-color: var(--border);
+}
+
+.recovery-drawer {
+  position: fixed;
+  z-index: 40;
+  inset: 0 0 0 auto;
+  width: min(760px, 92vw);
+  overflow-y: auto;
+  padding: 20px;
+  color: var(--text);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 28px rgb(0 0 0 / 24%);
+}
+
+.recovery-drawer > header,
+.recovery-entry,
+.recovery-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recovery-drawer > header {
+  justify-content: space-between;
+}
+
+.recovery-drawer h2 {
+  margin: 0;
+  border: 0;
+}
+
+.recovery-entry {
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.recovery-entry.is-selected {
+  color: var(--heading);
+}
+
+.recovery-actions {
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+
+.recovery-drawer button {
+  padding: 4px 9px;
+  border: 1px solid var(--gray);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--bg-light);
+  cursor: pointer;
+}
+
+.recovery-empty {
+  color: var(--gray);
+  padding: 24px 0;
+}
+
+@media (max-width: 700px) {
+  .toolbar {
+    position: sticky;
+    top: 0;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    padding: 8px 0;
+    background: var(--bg);
+  }
+
+  .sync-status {
+    min-width: 0;
+  }
+}

@@ -95,6 +95,9 @@ strong { color: var(--heading); }
 mark { background: var(--highlight); color: #ff0000; }
 ::selection { background: var(--highlight); }
 li input[type="checkbox"] { margin-right: 6px; accent-color: var(--link); }
+sup, sub { vertical-align: baseline; position: relative; font-size: 0.75em; }
+sup { top: -0.4em; }
+sub { bottom: -0.3em; }
 .katex { color: var(--heading); }
 
 code[class*="language-"],
@@ -149,13 +152,4 @@ pre[class*="language-"] {
 .toolbar button:hover {
     color: var(--heading);
     border-color: var(--heading);
-}
-#raw-view {
-    display: none;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
-    font-size: 14px;
-    color: var(--text);
-    line-height: 1.5;
 }
