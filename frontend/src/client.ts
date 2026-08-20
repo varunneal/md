@@ -131,6 +131,25 @@ interface ScrollAnchor {
 }
 
 const blockSelector = "h1,h2,h3,h4,h5,h6,p,li,pre,td,blockquote";
+const mathDelimiters = [
+  {left: "$$", right: "$$", display: true},
+  {left: "$", right: "$", display: false},
+  {left: "\\(", right: "\\)", display: false},
+  {left: "\\begin{equation}", right: "\\end{equation}", display: true},
+  {left: "\\begin{equation*}", right: "\\end{equation*}", display: true},
+  {left: "\\begin{align}", right: "\\end{align}", display: true},
+  {left: "\\begin{align*}", right: "\\end{align*}", display: true},
+  {left: "\\begin{alignat}", right: "\\end{alignat}", display: true},
+  {left: "\\begin{alignat*}", right: "\\end{alignat*}", display: true},
+  {left: "\\begin{gather}", right: "\\end{gather}", display: true},
+  {left: "\\begin{gather*}", right: "\\end{gather*}", display: true},
+  {left: "\\begin{CD}", right: "\\end{CD}", display: true},
+  {left: "\\[", right: "\\]", display: true},
+];
+
+function preprocessMath(math: string): string {
+  return math.replace(/\\label\s*\{[^{}]*\}/g, "");
+}
 
 function captureScrollAnchor(): ScrollAnchor | null {
   if (viewMode !== "rendered") return null;
@@ -154,12 +173,8 @@ function restoreScrollAnchor(anchor: ScrollAnchor | null): void {
 function enhanceRendered(): void {
   try {
     window.renderMathInElement?.(rendered, {
-      delimiters: [
-        {left: "$$", right: "$$", display: true},
-        {left: "$", right: "$", display: false},
-        {left: "\\(", right: "\\)", display: false},
-        {left: "\\[", right: "\\]", display: true},
-      ],
+      delimiters: mathDelimiters,
+      preProcess: preprocessMath,
     });
     window.Prism?.highlightAllUnder(rendered);
   } catch (error) {

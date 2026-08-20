@@ -60,6 +60,20 @@ test("live rendering reruns KaTeX and Prism and preserves theme and view", async
   await expect(page.locator("#rendered code .token").first()).toBeVisible({timeout: 5000});
 });
 
+test("standalone LaTeX environments survive Markdown and render with KaTeX", async ({page}) => {
+  await openDocument(page, String.raw`\begin{align}
+&\text{Forward Stability:}\quad x &= y \\[5pt]
+
+&\text{Dependency Stability:}\quad a &= b \label{eq:dependency}
+\end{align}`);
+
+  const displayMath = page.locator("#rendered .katex-display");
+  await expect(displayMath).toBeVisible({timeout: 5000});
+  await expect(displayMath).toContainText("Forward Stability:");
+  await expect(displayMath).toContainText("Dependency Stability:");
+  await expect(displayMath).not.toContainText("label");
+});
+
 test("reading position survives a rendered live update", async ({page}) => {
   const paragraphs = Array.from({length: 80}, (_, index) => `## Section ${index}\n\nParagraph ${index}.`).join("\n\n");
   const path = await openDocument(page, paragraphs);

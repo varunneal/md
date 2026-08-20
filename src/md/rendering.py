@@ -16,7 +16,15 @@ _markdown = mistune.create_markdown(
     plugins=["strikethrough", "table", "footnotes", "task_lists"],
 )
 _MATH_BLOCK = re.compile(r"\$\$(.+?)\$\$", re.DOTALL)
+_MATH_DISPLAY = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
+_MATH_ENVIRONMENT = re.compile(
+    r"\\begin\{(?P<environment>equation\*?|align(?:at)?\*?|gather\*?|CD)\}"
+    r".*?"
+    r"\\end\{(?P=environment)\}",
+    re.DOTALL,
+)
 _MATH_INLINE = re.compile(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)")
+_MATH_INLINE_PAREN = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
 
 
 def source_revision(source: str) -> str:
@@ -33,14 +41,16 @@ def _protect_math(text: str) -> tuple[str, dict[str, str]]:
         store[key] = raw
         return f"\n\n{key}\n\n" if display else key
 
-    text = _MATH_BLOCK.sub(lambda match: replace(match, display=True), text)
-    text = _MATH_INLINE.sub(lambda match: replace(match, display=False), text)
+    for pattern in (_MATH_BLOCK, _MATH_DISPLAY, _MATH_ENVIRONMENT):
+        text = pattern.sub(lambda match: replace(match, display=True), text)
+    for pattern in (_MATH_INLINE, _MATH_INLINE_PAREN):
+        text = pattern.sub(lambda match: replace(match, display=False), text)
     return text, store
 
 
 def _restore_math(html: str, store: dict[str, str]) -> str:
     for key, raw in store.items():
-        html = html.replace(key, raw)
+        html = html.replace(key, escape(raw))
     return html
 
 

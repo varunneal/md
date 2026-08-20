@@ -19926,15 +19926,32 @@ function bn(n) {
 function es(n) {
   Jr = n, Ft.style.display = n === "rendered" ? "block" : "none", Ro.style.display = n === "raw" ? "block" : "none", NO.style.display = n === "edit" ? "block" : "none", zl.hidden = n === "edit", UO.hidden = n === "edit", FO.hidden = n !== "edit", HO.hidden = n !== "edit", zl.textContent = n === "raw" ? "rendered" : "raw", n === "edit" && wi();
 }
-const KO = "h1,h2,h3,h4,h5,h6,p,li,pre,td,blockquote";
-function Nb() {
+const KO = "h1,h2,h3,h4,h5,h6,p,li,pre,td,blockquote", Nb = [
+  { left: "$$", right: "$$", display: !0 },
+  { left: "$", right: "$", display: !1 },
+  { left: "\\(", right: "\\)", display: !1 },
+  { left: "\\begin{equation}", right: "\\end{equation}", display: !0 },
+  { left: "\\begin{equation*}", right: "\\end{equation*}", display: !0 },
+  { left: "\\begin{align}", right: "\\end{align}", display: !0 },
+  { left: "\\begin{align*}", right: "\\end{align*}", display: !0 },
+  { left: "\\begin{alignat}", right: "\\end{alignat}", display: !0 },
+  { left: "\\begin{alignat*}", right: "\\end{alignat*}", display: !0 },
+  { left: "\\begin{gather}", right: "\\end{gather}", display: !0 },
+  { left: "\\begin{gather*}", right: "\\end{gather*}", display: !0 },
+  { left: "\\begin{CD}", right: "\\end{CD}", display: !0 },
+  { left: "\\[", right: "\\]", display: !0 }
+];
+function Ub(n) {
+  return n.replace(/\\label\s*\{[^{}]*\}/g, "");
+}
+function Fb() {
   if (Jr !== "rendered") return null;
   const n = [...Ft.querySelectorAll(KO)], e = n.findIndex((i) => i.getBoundingClientRect().bottom > 0);
   if (e < 0) return null;
   const t = n[e];
   return { index: e, text: (t.textContent || "").trim().slice(0, 80), top: t.getBoundingClientRect().top };
 }
-function Ub(n) {
+function Hb(n) {
   n && requestAnimationFrame(() => {
     const e = [...Ft.querySelectorAll(KO)], i = e.find((r) => (r.textContent || "").trim().startsWith(n.text)) || e[n.index];
     i && window.scrollBy(0, i.getBoundingClientRect().top - n.top);
@@ -19944,12 +19961,8 @@ function JO() {
   var n, e;
   try {
     (n = window.renderMathInElement) == null || n.call(window, Ft, {
-      delimiters: [
-        { left: "$$", right: "$$", display: !0 },
-        { left: "$", right: "$", display: !1 },
-        { left: "\\(", right: "\\)", display: !1 },
-        { left: "\\[", right: "\\]", display: !0 }
-      ]
+      delimiters: Nb,
+      preProcess: Ub
     }), (e = window.Prism) == null || e.highlightAllUnder(Ft);
   } catch (t) {
     console.warn("Markdown enhancement failed", t);
@@ -19962,13 +19975,13 @@ function Lo(n) {
   }), Wl = !1);
 }
 function ir(n, e) {
-  const t = Nb();
-  Zi = n.revision, Qe = n.source, sc = n.rendered_html, n.exists !== void 0 && (pt = n.exists), Ft.innerHTML = sc, Ro.textContent = Qe, JO(), Ub(t), e && Lo(Qe);
+  const t = Fb();
+  Zi = n.revision, Qe = n.source, sc = n.rendered_html, n.exists !== void 0 && (pt = n.exists), Ft.innerHTML = sc, Ro.textContent = Qe, JO(), Hb(t), e && Lo(Qe);
 }
 function ts() {
   return (he == null ? void 0 : he.state.doc.toString()) ?? Qe;
 }
-function Fb() {
+function Kb() {
   return [
     vg(),
     Tm(),
@@ -19984,13 +19997,13 @@ function Fb() {
       ...Em
     ]),
     C.updateListener.of((n) => {
-      !n.docChanged || Wl || (F = n.state.doc.toString() !== Qe, wi(), F ? Kb() : xi(H.path));
+      !n.docChanged || Wl || (F = n.state.doc.toString() !== Qe, wi(), F ? ey() : xi(H.path));
     })
   ];
 }
-function Hb(n = Qe) {
+function Jb(n = Qe) {
   return he || (he = new C({
-    state: z.create({ doc: n, extensions: Fb() }),
+    state: z.create({ doc: n, extensions: Kb() }),
     parent: NO
   }), he.dom.addEventListener("focusout", () => {
     window.setTimeout(() => {
@@ -19999,10 +20012,10 @@ function Hb(n = Qe) {
   }), he);
 }
 function An(n) {
-  const e = Hb(n ?? Qe);
+  const e = Jb(n ?? Qe);
   n !== void 0 && Lo(n), es("edit"), e.focus();
 }
-function Kb() {
+function ey() {
   _s !== null && window.clearTimeout(_s), _s = window.setTimeout(() => void Ci(), 250);
 }
 async function Ci() {
@@ -20017,7 +20030,7 @@ async function Ci() {
   };
   await Bb(n);
 }
-async function Jb(n) {
+async function ty(n) {
   F && (await GO({
     id: crypto.randomUUID(),
     path: H.path,
@@ -20038,10 +20051,10 @@ async function nr(n) {
       ir(n, !1), F = ts() !== n.source, F ? await Ci() : await xi(H.path), wi();
       return;
     }
-    F ? (await Jb(n.source), ir(n, !0), F = !1, bn("External changes applied; draft preserved")) : ir(n, !0), wi();
+    F ? (await ty(n.source), ir(n, !0), F = !1, bn("External changes applied; draft preserved")) : ir(n, !0), wi();
   }
 }
-function ey() {
+function iy() {
   const n = new URL("/ws", window.location.href);
   return n.protocol = n.protocol === "https:" ? "wss:" : "ws:", n.search = new URLSearchParams({
     path: H.path,
@@ -20050,10 +20063,10 @@ function ey() {
   }).toString(), n.toString();
 }
 function ed() {
-  tr !== null && (window.clearTimeout(tr), tr = null), se = new WebSocket(ey()), se.addEventListener("open", () => {
+  tr !== null && (window.clearTimeout(tr), tr = null), se = new WebSocket(iy()), se.addEventListener("open", () => {
     er = 0, wi();
   }), se.addEventListener("message", (n) => {
-    lc = lc.then(() => ty(JSON.parse(String(n.data)))).catch((e) => console.error("Synchronization message failed", e));
+    lc = lc.then(() => ny(JSON.parse(String(n.data)))).catch((e) => console.error("Synchronization message failed", e));
   }), se.addEventListener("close", () => {
     se = null, F && Ci();
     for (const e of Qn.values()) e.resolve(!1);
@@ -20062,7 +20075,7 @@ function ed() {
     er = Math.min(er + 1, 6), tr = window.setTimeout(ed, n);
   }), se.addEventListener("error", () => se == null ? void 0 : se.close());
 }
-async function ty(n) {
+async function ny(n) {
   const e = n.type;
   if (e === "snapshot" || e === "document_changed") {
     await nr(n);
@@ -20108,12 +20121,12 @@ async function jo() {
   const n = await IO(H.path);
   Db.textContent = n.length ? String(n.length) : "";
 }
-function iy(n) {
+function ry(n) {
   if (navigator.clipboard) return navigator.clipboard.writeText(n);
   const e = document.createElement("textarea");
   return e.value = n, document.body.append(e), e.select(), document.execCommand("copy"), e.remove(), Promise.resolve();
 }
-function ny(n) {
+function sy(n) {
   const e = new Blob([n.source], { type: "text/markdown;charset=utf-8" }), t = URL.createObjectURL(e), i = document.createElement("a");
   i.href = t, i.download = `${H.path.split("/").pop() || "draft"}.recovered.md`, i.click(), URL.revokeObjectURL(t);
 }
@@ -20121,14 +20134,14 @@ function Gi(n, e) {
   const t = document.createElement("button");
   return t.type = "button", t.textContent = n, t.addEventListener("click", () => void e()), t;
 }
-async function ry(n) {
+async function ly(n) {
   Me == null || Me.destroy(), Ii.replaceChildren();
   const e = document.createElement("div");
   e.className = "recovery-actions", e.append(
     Gi("Copy Draft", async () => {
-      await iy(n.source), bn("Draft copied");
+      await ry(n.source), bn("Draft copied");
     }),
-    Gi("Download Draft", () => ny(n)),
+    Gi("Download Draft", () => sy(n)),
     Gi("Restore to Editor", async () => {
       window.confirm("Restore this draft against the current disk revision? It will not be written until you save.") && (Mo.hidden = !0, An(n.source), F = n.source !== Qe, qe(F ? "editing" : "saved"), F && await Ci());
     }),
@@ -20163,11 +20176,11 @@ async function td() {
     t.className = "recovery-entry";
     const i = document.createElement("span");
     i.textContent = new Date(e.timestamp).toLocaleString();
-    const r = Gi("Compare", () => ry(e));
+    const r = Gi("Compare", () => ly(e));
     t.append(i, r), zs.append(t);
   }
 }
-async function sy() {
+async function oy() {
   const n = await Wb(H.path);
   if (!n || n.source === Qe) {
     n && await xi(H.path);
@@ -20216,4 +20229,4 @@ window.addEventListener("load", JO);
 window.addEventListener("offline", () => {
   F && Ci(), qe(pt ? "reconnecting" : "file-missing"), se == null || se.close();
 });
-(async () => (await Xo(H.path), await sy(), await jo(), ed()))();
+(async () => (await Xo(H.path), await oy(), await jo(), ed()))();
