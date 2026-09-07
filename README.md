@@ -16,9 +16,13 @@ The wheel includes the compiled CodeMirror client, so Node.js is not required at
 
 ```sh
 md file.md          # open the synchronized Markdown viewer
+md .                # browse an index of the current directory
+md path/to/folder   # browse another directory
 md --status         # check whether the background server is ready
 md --stop           # gracefully stop the background server
 ```
+
+Directory indexes list visible subfolders and `.md` / `.markdown` files. Click a folder to browse it or a file to open the viewer; use your browser's Back button to return to the index. Refresh the index to see added or removed files.
 
 The rendered, raw, and editor views stay synchronized. Press `e` or double-click rendered content to edit. Theme and view selection survive live updates, and deleted files recover automatically if recreated at the original path.
 

@@ -4,9 +4,11 @@ import asyncio
 import hmac
 import json
 from contextlib import asynccontextmanager
+from html import escape
 from pathlib import Path
 from string import Template
 from typing import Any, AsyncIterator
+from urllib.parse import urlencode
 
 import uvicorn
 from starlette.applications import Starlette
@@ -19,7 +21,8 @@ from .documents import Document, DocumentManager, canonical_path
 from .rendering import PKG_DIR, escaped_title, load_css
 
 
-PROTOCOL_VERSION = 1
+# Replace background servers that predate directory browsing.
+PROTOCOL_VERSION = 2
 STATIC_DIR = PKG_DIR / "static"
 
 
@@ -61,6 +64,57 @@ PAGE_TEMPLATE = Template("""<!doctype html>
 </body>
 </html>
 """)
+
+
+INDEX_TEMPLATE = Template("""<!doctype html>
+<html data-theme="$theme">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Index of $path</title>
+<style>$css</style>
+</head>
+<body>
+<main>
+<h1>Index of $path</h1>
+$parent
+$entries
+</main>
+</body>
+</html>
+""")
+
+
+def render_index(path: Path, *, token: str, theme: str) -> str:
+    def link(target: Path, label: str) -> str:
+        url = "/view?" + urlencode({"path": str(target), "token": token})
+        return f'<a href="{escape(url, quote=True)}">{escape(label)}</a>'
+
+    entries = []
+    for entry in path.iterdir():
+        if entry.name.startswith("."):
+            continue
+        is_directory = entry.is_dir()
+        if is_directory or (
+            entry.suffix.lower() in {".md", ".markdown"} and entry.is_file()
+        ):
+            entries.append((not is_directory, entry.name.casefold(), entry))
+    entries.sort()
+    items = "".join(
+        f"<li>{link(entry, entry.name + ('/' if not is_file else ''))}</li>"
+        for is_file, _name, entry in entries
+    )
+    parent = (
+        f'<nav aria-label="Directory navigation">{link(path.parent, "../ (parent directory)")}</nav>'
+        if path.parent != path else ""
+    )
+    return INDEX_TEMPLATE.substitute(
+        theme=escape(theme, quote=True),
+        path=escape(str(path)),
+        css=load_css(),
+        parent=parent,
+        entries=f"<ul>{items}</ul>" if items else "<p>No Markdown files or subdirectories.</p>",
+    )
 
 
 def _json_for_script(value: Any) -> str:
@@ -116,11 +170,19 @@ def create_app(
         if not raw_path or not Path(raw_path).is_absolute():
             return PlainTextResponse("An absolute path is required", status_code=400)
         try:
+            path = canonical_path(raw_path)
+            if path.is_dir():
+                return HTMLResponse(
+                    render_index(path, token=token, theme=theme),
+                    headers={"Cache-Control": "no-store"},
+                )
             document = await documents.open(raw_path)
         except (FileNotFoundError, IsADirectoryError):
             return PlainTextResponse("File not found", status_code=404)
         except UnicodeDecodeError:
             return PlainTextResponse("File is not UTF-8", status_code=415)
+        except PermissionError:
+            return PlainTextResponse("Permission denied", status_code=403)
         return HTMLResponse(
             render_page(
                 document,

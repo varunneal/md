@@ -6,8 +6,32 @@ import signal
 import socket
 import stat
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
 
 from md import cli
+
+
+@pytest.mark.parametrize("directory", [False, True])
+def test_cli_opens_files_and_directories(monkeypatch, tmp_path: Path, directory: bool) -> None:
+    path = tmp_path / "notes & drafts"
+    if directory:
+        path.mkdir()
+    else:
+        path.write_text("# hello", encoding="utf-8")
+    state = {"pid": 123, "port": 53291, "protocol_version": cli.PROTOCOL_VERSION, "token": "test-token"}
+    monkeypatch.setattr("sys.argv", ["md", str(path)])
+    monkeypatch.setattr(cli, "ensure_server", lambda: state)
+    calls = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda args, **kwargs: calls.append(args))
+
+    cli.main()
+
+    assert len(calls) == 1
+    url = urlsplit(calls[0][-1])
+    assert url.path == "/view"
+    assert parse_qs(url.query) == {"path": [str(path.resolve())], "token": ["test-token"]}
 
 
 def unused_port() -> int:

@@ -288,7 +288,9 @@ def _open_browser(filepath: Path, state: ServerState) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render Markdown in a browser")
-    parser.add_argument("file", nargs="?", type=Path, help="Markdown file to render")
+    parser.add_argument(
+        "file", nargs="?", type=Path, help="Markdown file or directory to browse"
+    )
     parser.add_argument("--stop", action="store_true", help="Stop the background server")
     parser.add_argument("--status", action="store_true", help="Check if server is running")
     args = parser.parse_args()
@@ -312,11 +314,12 @@ def main() -> None:
         parser.error("the following arguments are required: file")
 
     filepath = args.file.expanduser().resolve()
-    if not filepath.is_file():
-        print(f"File not found: {filepath}", file=sys.stderr)
+    if not (filepath.is_file() or filepath.is_dir()):
+        print(f"File or directory not found: {filepath}", file=sys.stderr)
         raise SystemExit(1)
     try:
-        filepath.read_text(encoding="utf-8")
+        if filepath.is_file():
+            filepath.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         print(f"File is not UTF-8: {filepath}", file=sys.stderr)
         raise SystemExit(1)
